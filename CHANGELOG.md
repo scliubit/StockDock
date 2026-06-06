@@ -5,6 +5,7 @@ All notable changes to StockDock are tracked here.
 ## Unreleased
 
 - Added a Settings toggle for launching StockDock automatically at login.
+- Improved launch-at-login handling for local app builds.
 - Extended the live menu bar refresh interval range up to 5 seconds.
 - Slightly increased the bottom action button font size in watchlist and portfolio views.
 - Changed all in-app money labels to prefix currency symbols/codes before values.

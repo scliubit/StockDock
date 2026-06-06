@@ -83,7 +83,6 @@ struct SettingsView: View {
                         .font(.inter(13, weight: .bold, relativeTo: .headline))
                     Toggle("Launch at login", isOn: launchAtLoginBinding)
                         .toggleStyle(.switch)
-                        .disabled(launchAtLoginUnavailable)
                     Text(launchAtLoginDescription)
                         .font(.inter(10, relativeTo: .caption))
                         .foregroundColor(launchAtLoginErrorMessage == nil ? .secondary : .red)
@@ -256,17 +255,6 @@ struct SettingsView: View {
         }
     }
 
-    private var launchAtLoginUnavailable: Bool {
-        switch launchAtLoginStatus {
-        case .notFound:
-            return true
-        case .enabled, .requiresApproval, .notRegistered:
-            return false
-        @unknown default:
-            return true
-        }
-    }
-
     private var launchAtLoginDescription: String {
         if let launchAtLoginErrorMessage {
             return launchAtLoginErrorMessage
@@ -280,7 +268,7 @@ struct SettingsView: View {
         case .notRegistered:
             return "Start StockDock automatically when you log in"
         case .notFound:
-            return "Launch at login is unavailable for this build"
+            return "macOS cannot read the login-item status; try enabling it from this app"
         @unknown default:
             return "Launch at login status is unavailable"
         }
