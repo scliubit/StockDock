@@ -24,6 +24,10 @@ class StorageService: ObservableObject {
         didSet { scheduleSave() }
     }
 
+    @Published var liveUpdateInterval: Double = 1.0 {
+        didSet { scheduleSave() }
+    }
+
     // MARK: - Watchlist row display toggles
     @Published var showCompanyName: Bool = true {
         didSet { scheduleSave() }
@@ -100,9 +104,9 @@ class StorageService: ObservableObject {
 
     var lastSelectedTab: String = "Watchlist"
 
-    static let supportedCurrencies = ["EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD"]
+    static let supportedCurrencies = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "HKD", "CNY", "SGD", "NZD", "SEK", "NOK", "DKK", "INR"]
 
-    static func currencySymbol(for code: String) -> String {
+    nonisolated static func currencySymbol(for code: String) -> String {
         switch code {
         case "EUR": return "€"
         case "USD": return "$"
@@ -111,8 +115,26 @@ class StorageService: ObservableObject {
         case "JPY": return "¥"
         case "CAD": return "C$"
         case "AUD": return "A$"
+        case "HKD": return "HK$"
+        case "CNY": return "CN¥"
+        case "SGD": return "S$"
+        case "NZD": return "NZ$"
+        case "SEK", "NOK", "DKK": return "kr"
+        case "INR": return "₹"
         default: return code
         }
+    }
+
+    nonisolated static func currencyAmount(_ amount: Double, code: String, signed: Bool = false, fractionDigits: Int = 2) -> String {
+        let symbol = currencySymbol(for: code)
+        let sign = signed ? (amount >= 0 ? "+" : "-") : (amount < 0 ? "-" : "")
+        let digits = max(0, fractionDigits)
+        let number = String(format: "%.\(digits)f", abs(amount))
+
+        if symbol.count > 1 && !symbol.contains("$") {
+            return "\(sign)\(symbol) \(number)"
+        }
+        return "\(sign)\(symbol)\(number)"
     }
 
     private let fileURL: URL
@@ -168,9 +190,9 @@ class StorageService: ObservableObject {
         portfolios.removeAll { $0.id == id }
     }
 
-    func addHolding(to portfolioId: UUID, symbol: String, quantity: Double, avgPrice: Double, purchaseDate: Date? = nil) {
+    func addHolding(to portfolioId: UUID, symbol: String, quantity: Double, avgPrice: Double, avgPriceCurrency: String? = nil, purchaseDate: Date? = nil) {
         guard let index = portfolios.firstIndex(where: { $0.id == portfolioId }) else { return }
-        let holding = Holding(symbol: symbol, quantity: quantity, avgPrice: avgPrice, purchaseDate: purchaseDate)
+        let holding = Holding(symbol: symbol, quantity: quantity, avgPrice: avgPrice, avgPriceCurrency: normalizedCurrency(avgPriceCurrency), purchaseDate: purchaseDate)
         portfolios[index].holdings.append(holding)
     }
 
@@ -179,19 +201,26 @@ class StorageService: ObservableObject {
         portfolios[pIndex].holdings.removeAll { $0.id == holdingId }
     }
 
-    func updateHolding(in portfolioId: UUID, holdingId: UUID, quantity: Double, avgPrice: Double, purchaseDate: Date? = nil) {
+    func updateHolding(in portfolioId: UUID, holdingId: UUID, quantity: Double, avgPrice: Double, avgPriceCurrency: String? = nil, purchaseDate: Date? = nil) {
         guard let pIndex = portfolios.firstIndex(where: { $0.id == portfolioId }),
               let hIndex = portfolios[pIndex].holdings.firstIndex(where: { $0.id == holdingId })
         else { return }
         portfolios[pIndex].holdings[hIndex].quantity = quantity
         portfolios[pIndex].holdings[hIndex].avgPrice = avgPrice
+        portfolios[pIndex].holdings[hIndex].avgPriceCurrency = normalizedCurrency(avgPriceCurrency)
         portfolios[pIndex].holdings[hIndex].purchaseDate = purchaseDate
+    }
+
+    private func normalizedCurrency(_ currency: String?) -> String? {
+        guard let currency, !currency.isEmpty else { return nil }
+        return currency
     }
 
     func resetToDefaults() {
         preferredCurrency = "EUR"
         stockPriceCurrency = ""
         showExtendedHours = true
+        liveUpdateInterval = 1.0
         showCompanyName = true
         showDayRange = true
         show52WeekBar = true
@@ -251,6 +280,7 @@ class StorageService: ObservableObject {
         var preferredCurrency: String?
         var stockPriceCurrency: String?
         var showExtendedHours: Bool?
+        var liveUpdateInterval: Double?
         var menuBarDisplay: String?
         var isinMap: [String: String]?
         var fontSizeLevel: Int?
@@ -273,7 +303,7 @@ class StorageService: ObservableObject {
     }
 
     private func performSave() {
-        let data = AppData(watchlist: watchlist, portfolios: portfolios, preferredCurrency: preferredCurrency, stockPriceCurrency: stockPriceCurrency, showExtendedHours: showExtendedHours, menuBarDisplay: menuBarDisplay, isinMap: isinMap, fontSizeLevel: fontSizeLevel, fontFamily: fontFamily, alerts: alerts, showCompanyName: showCompanyName, showDayRange: showDayRange, show52WeekBar: show52WeekBar, showAbsoluteChange: showAbsoluteChange)
+        let data = AppData(watchlist: watchlist, portfolios: portfolios, preferredCurrency: preferredCurrency, stockPriceCurrency: stockPriceCurrency, showExtendedHours: showExtendedHours, liveUpdateInterval: liveUpdateInterval, menuBarDisplay: menuBarDisplay, isinMap: isinMap, fontSizeLevel: fontSizeLevel, fontFamily: fontFamily, alerts: alerts, showCompanyName: showCompanyName, showDayRange: showDayRange, show52WeekBar: show52WeekBar, showAbsoluteChange: showAbsoluteChange)
         do {
             let encoded = try JSONEncoder().encode(data)
             try encoded.write(to: fileURL, options: .atomic)
@@ -298,6 +328,7 @@ class StorageService: ObservableObject {
             preferredCurrency = decoded.preferredCurrency ?? "EUR"
             stockPriceCurrency = decoded.stockPriceCurrency ?? ""
             showExtendedHours = decoded.showExtendedHours ?? true
+            liveUpdateInterval = min(max(decoded.liveUpdateInterval ?? 1.0, 0.25), 5.0)
             menuBarDisplay = decoded.menuBarDisplay ?? "pnl"
             isinMap = decoded.isinMap ?? [:]
             alerts = decoded.alerts ?? []

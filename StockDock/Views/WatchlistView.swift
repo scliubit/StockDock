@@ -138,7 +138,7 @@ struct WatchlistView: View {
                     Image(systemName: "plus.circle.fill")
                     Text("Add stock")
                 }
-                .font(.inter(10, relativeTo: .caption))
+                .font(.inter(11, relativeTo: .caption))
             }
             .buttonStyle(.borderless)
             .padding(8)
@@ -157,7 +157,7 @@ struct WatchlistView: View {
                 }
                 .environmentObject(stockService)
                 .environmentObject(storageService)
-                .frame(width: 300, height: 220)
+                .frame(width: 300, height: 280)
             }
             .sheet(item: Binding<AlertSheetItem?>(
                 get: { alertSymbol.map { AlertSheetItem(symbol: $0) } },
@@ -241,6 +241,7 @@ struct QuickAddHoldingView: View {
 
     @State private var quantityText = ""
     @State private var avgPriceText = ""
+    @State private var avgPriceCurrency = ""
     @State private var purchaseDate = Date()
 
     var body: some View {
@@ -267,6 +268,18 @@ struct QuickAddHoldingView: View {
             }
 
             VStack(alignment: .leading) {
+                Text("Avg price currency").font(.inter(10, relativeTo: .caption)).foregroundColor(.secondary)
+                Picker("Avg price currency", selection: $avgPriceCurrency) {
+                    Text("Quote currency").tag("")
+                    ForEach(StorageService.supportedCurrencies, id: \.self) { code in
+                        Text("\(StorageService.currencySymbol(for: code)) \(code)")
+                            .tag(code)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            VStack(alignment: .leading) {
                 Text("Purchase date").font(.inter(10, relativeTo: .caption)).foregroundColor(.secondary)
                 DatePicker("", selection: $purchaseDate, displayedComponents: .date)
                     .datePickerStyle(.compact)
@@ -280,7 +293,7 @@ struct QuickAddHoldingView: View {
                       let price = Double(avgPriceText.replacingOccurrences(of: ",", with: ".")),
                       qty > 0, price > 0
                 else { return }
-                storageService.addHolding(to: portfolioId, symbol: symbol, quantity: qty, avgPrice: price, purchaseDate: purchaseDate)
+                storageService.addHolding(to: portfolioId, symbol: symbol, quantity: qty, avgPrice: price, avgPriceCurrency: avgPriceCurrency, purchaseDate: purchaseDate)
                 Task { await stockService.refreshAll(storageService: storageService) }
                 onDismiss()
             }
@@ -311,10 +324,6 @@ struct QuoteRow: View {
         stockService.priceRate(from: quote.currency)
     }
 
-    private var currSymbol: String {
-        StorageService.currencySymbol(for: displayCurrency)
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             // Col 1: Symbol + name
@@ -334,7 +343,7 @@ struct QuoteRow: View {
             // Col 2: Price + day range
             VStack(spacing: 1) {
                 HStack(spacing: 3) {
-                    Text(String(format: "%.2f %@", quote.displayPrice(extendedHours: storageService.showExtendedHours) * priceRate, currSymbol))
+                    Text(StorageService.currencyAmount(quote.displayPrice(extendedHours: storageService.showExtendedHours) * priceRate, code: displayCurrency))
                         .font(.inter(13, relativeTo: .body).monospacedDigit())
                         .fontWeight(.medium)
                     if storageService.showExtendedHours, quote.isExtendedHours, !quote.marketStateLabel.isEmpty {
@@ -350,7 +359,7 @@ struct QuoteRow: View {
                     }
                 }
                 if storageService.showDayRange, let high = quote.dayHigh, let low = quote.dayLow {
-                    Text(String(format: "%.2f – %.2f", low * priceRate, high * priceRate))
+                    Text("\(StorageService.currencyAmount(low * priceRate, code: displayCurrency)) – \(StorageService.currencyAmount(high * priceRate, code: displayCurrency))")
                         .font(.inter(10, relativeTo: .caption).monospacedDigit())
                         .foregroundColor(.secondary)
                 }
@@ -358,12 +367,12 @@ struct QuoteRow: View {
                    let pos = quote.fiftyTwoWeekPosition,
                    let low = quote.fiftyTwoWeekLow, let high = quote.fiftyTwoWeekHigh {
                     HStack(spacing: 4) {
-                        Text(String(format: "%.0f", low * priceRate))
+                        Text(StorageService.currencyAmount(low * priceRate, code: displayCurrency, fractionDigits: 0))
                             .font(.inter(8, relativeTo: .caption2).monospacedDigit())
                             .foregroundColor(.secondary)
                         RangeBar(position: pos)
                             .frame(width: 56)
-                        Text(String(format: "%.0f", high * priceRate))
+                        Text(StorageService.currencyAmount(high * priceRate, code: displayCurrency, fractionDigits: 0))
                             .font(.inter(8, relativeTo: .caption2).monospacedDigit())
                             .foregroundColor(.secondary)
                     }
@@ -375,7 +384,7 @@ struct QuoteRow: View {
             // Col 3: Change
             VStack(alignment: .trailing, spacing: 1) {
                 if storageService.showAbsoluteChange {
-                    Text(String(format: "%+.2f %@", quote.change * priceRate, currSymbol))
+                    Text(StorageService.currencyAmount(quote.change * priceRate, code: displayCurrency, signed: true))
                         .font(.inter(13, relativeTo: .body).monospacedDigit())
                         .fontWeight(.medium)
                         .foregroundColor(quote.isPositive ? .green : .red)
@@ -387,7 +396,7 @@ struct QuoteRow: View {
                 if storageService.showExtendedHours,
                    let extChg = quote.extendedChange,
                    let extPct = quote.extendedChangePercent {
-                    Text(String(format: "%+.2f (%.1f%%)", extChg * priceRate, extPct))
+                    Text("\(StorageService.currencyAmount(extChg * priceRate, code: displayCurrency, signed: true)) (\(String(format: "%.1f%%", extPct)))")
                         .font(.inter(10, relativeTo: .caption).monospacedDigit())
                         .foregroundColor(extChg >= 0 ? .green.opacity(0.8) : .red.opacity(0.8))
                 }

@@ -1,3 +1,4 @@
+import ServiceManagement
 import Sparkle
 import SwiftUI
 
@@ -6,6 +7,8 @@ struct SettingsView: View {
     @EnvironmentObject var stockService: StockService
     @EnvironmentObject var updaterViewModel: UpdaterViewModel
     @State private var showResetAlert = false
+    @State private var launchAtLoginStatus = SMAppService.mainApp.status
+    @State private var launchAtLoginErrorMessage: String?
 
     var body: some View {
         ScrollView {
@@ -74,6 +77,32 @@ struct SettingsView: View {
 
                 Divider()
 
+                // MARK: - System
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("System")
+                        .font(.inter(13, weight: .bold, relativeTo: .headline))
+                    Toggle("Launch at login", isOn: launchAtLoginBinding)
+                        .toggleStyle(.switch)
+                        .disabled(launchAtLoginUnavailable)
+                    Text(launchAtLoginDescription)
+                        .font(.inter(10, relativeTo: .caption))
+                        .foregroundColor(launchAtLoginErrorMessage == nil ? .secondary : .red)
+                }
+
+                Divider()
+
+                // MARK: - Refresh Rate
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Refresh Rate")
+                        .font(.inter(13, weight: .bold, relativeTo: .headline))
+                    Slider(value: $storageService.liveUpdateInterval, in: 0.25...5.0, step: 0.25)
+                    Text("Live menu bar refresh: \(storageService.liveUpdateInterval, specifier: "%.2f")s")
+                        .font(.inter(10, relativeTo: .caption))
+                        .foregroundColor(.secondary)
+                }
+
+                Divider()
+
                 // MARK: - Watchlist Display
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Watchlist Display")
@@ -98,14 +127,14 @@ struct SettingsView: View {
                     Text("Menu Bar Display")
                         .font(.inter(13, weight: .bold, relativeTo: .headline))
                     Picker("Display", selection: $storageService.menuBarDisplay) {
-                        Text("P&L (+321.09€)").tag("pnl")
+                        Text("P&L (\(StorageService.currencyAmount(321.09, code: storageService.preferredCurrency, signed: true)))").tag("pnl")
                         Text("P&L % (+2.3%)").tag("pnlPercent")
-                        Text("P&L + % (+321.09€ +2.3%)").tag("pnlFull")
-                        Text("Total Value (14396.67€)").tag("totalValue")
+                        Text("P&L + % (\(StorageService.currencyAmount(321.09, code: storageService.preferredCurrency, signed: true)) +2.3%)").tag("pnlFull")
+                        Text("Total Value (\(StorageService.currencyAmount(14396.67, code: storageService.preferredCurrency)))").tag("totalValue")
                         Text("Best Stock (▲ AAPL +1.2%)").tag("bestStock")
                         Text("Worst Stock (▼ TSLA -0.8%)").tag("worstStock")
                         Text("Best & Worst").tag("bestWorst")
-                        Text("Portfolio (14396.67€ +1.2%)").tag("portfolioRecap")
+                        Text("Portfolio (\(StorageService.currencyAmount(14396.67, code: storageService.preferredCurrency)) +1.2%)").tag("portfolioRecap")
                         Text("Ticker (cycle watchlist)").tag("ticker")
                         Text("Icon Only").tag("icon")
                     }
@@ -192,6 +221,9 @@ struct SettingsView: View {
             }
             .padding(16)
         }
+        .onAppear {
+            refreshLaunchAtLoginStatus()
+        }
         .alert("Reset Settings", isPresented: $showResetAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Reset", role: .destructive) {
@@ -206,6 +238,74 @@ struct SettingsView: View {
         }
     }
 
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLoginRequested },
+            set: { setLaunchAtLogin($0) }
+        )
+    }
+
+    private var launchAtLoginRequested: Bool {
+        switch launchAtLoginStatus {
+        case .enabled, .requiresApproval:
+            return true
+        case .notRegistered, .notFound:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+    private var launchAtLoginUnavailable: Bool {
+        switch launchAtLoginStatus {
+        case .notFound:
+            return true
+        case .enabled, .requiresApproval, .notRegistered:
+            return false
+        @unknown default:
+            return true
+        }
+    }
+
+    private var launchAtLoginDescription: String {
+        if let launchAtLoginErrorMessage {
+            return launchAtLoginErrorMessage
+        }
+
+        switch launchAtLoginStatus {
+        case .enabled:
+            return "StockDock opens automatically when you log in"
+        case .requiresApproval:
+            return "Approve StockDock in System Settings > Login Items to finish setup"
+        case .notRegistered:
+            return "Start StockDock automatically when you log in"
+        case .notFound:
+            return "Launch at login is unavailable for this build"
+        @unknown default:
+            return "Launch at login status is unavailable"
+        }
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        launchAtLoginStatus = SMAppService.mainApp.status
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                if !launchAtLoginRequested {
+                    try SMAppService.mainApp.register()
+                }
+            } else if launchAtLoginRequested {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLoginErrorMessage = nil
+        } catch {
+            launchAtLoginErrorMessage = error.localizedDescription
+        }
+
+        refreshLaunchAtLoginStatus()
+    }
 }
 
 /// A single alert row in Settings: enable/re-arm toggle, description and delete.
@@ -213,9 +313,8 @@ private struct AlertRow: View {
     @EnvironmentObject var storageService: StorageService
     let alert: PriceAlert
 
-    private var currencySymbol: String {
-        StorageService.currencySymbol(for: StockService.shared.quotes[alert.symbol]?.currency
-            ?? storageService.preferredCurrency)
+    private var currencyCode: String {
+        StockService.shared.quotes[alert.symbol]?.currency ?? storageService.preferredCurrency
     }
 
     var body: some View {
@@ -227,7 +326,7 @@ private struct AlertRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(alert.symbol)
                     .font(.inter(12, weight: .semibold, relativeTo: .body))
-                Text(AlertEvaluator.describe(alert, currencySymbol: currencySymbol))
+                Text(AlertEvaluator.describe(alert, currencyCode: currencyCode))
                     .font(.inter(9, relativeTo: .caption2))
                     .foregroundColor(.secondary)
             }

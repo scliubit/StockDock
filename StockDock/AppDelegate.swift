@@ -64,6 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// REST polling: quotes + exchange rates as WSS fallback
     private static let restPollingInterval: TimeInterval = 60
+    private static let tickerCycleInterval: TimeInterval = 5
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         FontRegistration.registerFonts()
@@ -168,10 +169,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         webSocketService.connect(symbols: Array(symbols))
     }
 
-    /// Flush buffered ticks max once per second to avoid @Published spam
+    /// Flush buffered ticks at the configured UI cadence to avoid @Published spam.
     private func scheduleTickFlush() {
         guard tickBatchTimer == nil else { return }
-        tickBatchTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+        let interval = min(max(storageService.liveUpdateInterval, 0.25), 5.0)
+        tickBatchTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.tickBatchTimer = nil
@@ -219,7 +221,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startTickerTimer() {
         guard tickerTimer == nil else { return }
-        tickerTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        tickerTimer = Timer.scheduledTimer(withTimeInterval: Self.tickerCycleInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.tickerIndex += 1
@@ -312,7 +314,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let rate = stockService.rate(from: quote.currency)
                     let displayPrice = quote.displayPrice(extendedHours: storageService.showExtendedHours)
                     totalValue += holding.marketValue(currentPrice: displayPrice) * rate
-                    let costRate = stockService.rate(from: quote.currency, for: holding.purchaseDate)
+                    let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
+                    let costRate = stockService.rate(from: costCurrency, for: holding.purchaseDate)
                     totalCost += (holding.avgPrice * holding.quantity) * costRate
                 }
             }
@@ -326,13 +329,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let worstStock = storageService.watchlist.compactMap { stockService.quotes[$0] }
             .min(by: { $0.changePercent < $1.changePercent })
 
-        let currSymbol = StorageService.currencySymbol(for: storageService.preferredCurrency)
         let title: String
         let color: NSColor
 
         switch displayMode {
         case "totalValue":
-            title = " \(String(format: "%.2f", totalValue))\(currSymbol)"
+            title = " \(StorageService.currencyAmount(totalValue, code: storageService.preferredCurrency))"
             color = totalPnl >= 0 ? .systemGreen : .systemRed
 
         case "pnlPercent":
@@ -341,9 +343,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             color = totalPnlPct >= 0 ? .systemGreen : .systemRed
 
         case "pnlFull":
-            let sign = totalPnl >= 0 ? "+" : ""
             let pctSign = totalPnlPct >= 0 ? "+" : ""
-            title = " \(sign)\(String(format: "%.2f", totalPnl))\(currSymbol) (\(pctSign)\(String(format: "%.1f", totalPnlPct))%)"
+            title = " \(StorageService.currencyAmount(totalPnl, code: storageService.preferredCurrency, signed: true)) (\(pctSign)\(String(format: "%.1f", totalPnlPct))%)"
             color = totalPnl >= 0 ? .systemGreen : .systemRed
 
         case "bestStock":
@@ -383,7 +384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         case "portfolioRecap":
             let sign = totalPnlPct >= 0 ? "+" : ""
-            title = " \(String(format: "%.2f", totalValue))\(currSymbol) \(sign)\(String(format: "%.1f", totalPnlPct))%"
+            title = " \(StorageService.currencyAmount(totalValue, code: storageService.preferredCurrency)) \(sign)\(String(format: "%.1f", totalPnlPct))%"
             color = totalPnl >= 0 ? .systemGreen : .systemRed
 
         case "ticker":
@@ -397,9 +398,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let quote = stockService.quotes[symbol] {
                     let pRate = stockService.priceRate(from: quote.currency)
                     let priceCurr = storageService.stockPriceCurrency
-                    let sym = StorageService.currencySymbol(for: priceCurr.isEmpty ? quote.currency : priceCurr)
+                    let currencyCode = priceCurr.isEmpty ? quote.currency : priceCurr
                     let sign = quote.changePercent >= 0 ? "+" : ""
-                    title = " \(quote.symbol) \(String(format: "%.2f", quote.displayPrice(extendedHours: storageService.showExtendedHours) * pRate))\(sym) \(sign)\(String(format: "%.1f", quote.changePercent))%"
+                    let price = quote.displayPrice(extendedHours: storageService.showExtendedHours) * pRate
+                    title = " \(quote.symbol) \(StorageService.currencyAmount(price, code: currencyCode)) \(sign)\(String(format: "%.1f", quote.changePercent))%"
                     color = quote.changePercent >= 0 ? .systemGreen : .systemRed
                 } else {
                     title = " \(symbol)"
@@ -408,8 +410,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
         default: // "pnl"
-            let sign = totalPnl >= 0 ? "+" : ""
-            title = " P&L \(sign)\(String(format: "%.2f", totalPnl))\(currSymbol)"
+            title = " P&L \(StorageService.currencyAmount(totalPnl, code: storageService.preferredCurrency, signed: true))"
             color = totalPnl >= 0 ? .systemGreen : .systemRed
         }
 

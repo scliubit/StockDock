@@ -56,11 +56,10 @@ final class AlertMonitor {
             guard let quote = quotes[alert.symbol] else { continue }
             guard AlertEvaluator.shouldFire(alert, quote: quote) else { continue }
 
-            let currency = StorageService.currencySymbol(for: quote.currency)
-            let priceStr = String(format: "%.2f %@", quote.effectivePrice, currency)
+            let priceStr = StorageService.currencyAmount(quote.effectivePrice, code: quote.currency)
             notifier.send(
                 title: "\(alert.symbol) alert",
-                body: "\(AlertEvaluator.describe(alert, currencySymbol: currency)) — now \(priceStr)",
+                body: "\(AlertEvaluator.describe(alert, currencyCode: quote.currency)) — now \(priceStr)",
                 identifier: alert.id.uuidString
             )
             storage.markAlertTriggered(id: alert.id)

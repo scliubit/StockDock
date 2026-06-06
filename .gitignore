@@ -38,3 +38,6 @@ xcuserdata/
 banner.html
 medium-post.md
 screenshots/
+.vscode/launch.json
+AGENTS.md
+build-local-release.sh

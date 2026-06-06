@@ -114,15 +114,23 @@ struct Holding: Identifiable, Codable {
     var symbol: String
     var quantity: Double
     var avgPrice: Double
+    /// Currency the average price was entered in. nil means the stock's quote currency.
+    var avgPriceCurrency: String?
     /// Purchase date for historical exchange rate in cost basis calculation
     var purchaseDate: Date?
 
-    init(id: UUID = UUID(), symbol: String, quantity: Double, avgPrice: Double, purchaseDate: Date? = nil) {
+    init(id: UUID = UUID(), symbol: String, quantity: Double, avgPrice: Double, avgPriceCurrency: String? = nil, purchaseDate: Date? = nil) {
         self.id = id
         self.symbol = symbol
         self.quantity = quantity
         self.avgPrice = avgPrice
+        self.avgPriceCurrency = avgPriceCurrency
         self.purchaseDate = purchaseDate
+    }
+
+    func costCurrency(quoteCurrency: String) -> String {
+        guard let avgPriceCurrency, !avgPriceCurrency.isEmpty else { return quoteCurrency }
+        return avgPriceCurrency
     }
 
     func pnl(currentPrice: Double) -> Double {

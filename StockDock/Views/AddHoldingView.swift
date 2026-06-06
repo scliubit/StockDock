@@ -10,6 +10,7 @@ struct AddHoldingView: View {
     @State private var searchText = ""
     @State private var quantityText = ""
     @State private var avgPriceText = ""
+    @State private var avgPriceCurrency = ""
     @State private var purchaseDate = Date()
     @State private var searchResults: [SearchResult] = []
     @State private var selectedSymbol: String?
@@ -74,6 +75,13 @@ struct AddHoldingView: View {
                             searchResults = []
                             if let quote = stockService.quotes[result.symbol] {
                                 avgPriceText = String(format: "%.2f", quote.price)
+                            } else {
+                                Task {
+                                    await stockService.fetchQuotes(symbols: [result.symbol])
+                                    if let quote = stockService.quotes[result.symbol], avgPriceText.isEmpty {
+                                        avgPriceText = String(format: "%.2f", quote.price)
+                                    }
+                                }
                             }
                         }) {
                             HStack {
@@ -112,6 +120,21 @@ struct AddHoldingView: View {
             .padding(.horizontal)
 
             VStack(alignment: .leading) {
+                Text("Avg price currency")
+                    .font(.inter(10, relativeTo: .caption))
+                    .foregroundColor(.secondary)
+                Picker("Avg price currency", selection: $avgPriceCurrency) {
+                    Text("Quote currency").tag("")
+                    ForEach(StorageService.supportedCurrencies, id: \.self) { code in
+                        Text("\(StorageService.currencySymbol(for: code)) \(code)")
+                            .tag(code)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            .padding(.horizontal)
+
+            VStack(alignment: .leading) {
                 Text("Purchase date")
                     .font(.inter(10, relativeTo: .caption))
                     .foregroundColor(.secondary)
@@ -140,7 +163,7 @@ struct AddHoldingView: View {
               qty > 0, price > 0
         else { return }
 
-        storageService.addHolding(to: portfolioId, symbol: sym, quantity: qty, avgPrice: price, purchaseDate: purchaseDate)
+        storageService.addHolding(to: portfolioId, symbol: sym, quantity: qty, avgPrice: price, avgPriceCurrency: avgPriceCurrency, purchaseDate: purchaseDate)
         Task {
             await stockService.refreshAll(storageService: storageService)
         }

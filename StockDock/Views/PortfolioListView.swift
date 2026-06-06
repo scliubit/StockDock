@@ -69,7 +69,6 @@ struct PortfolioListView: View {
 
                 // Grand total
                 if storageService.portfolios.count > 0 {
-                    let currSym = StorageService.currencySymbol(for: storageService.preferredCurrency)
                     let grandTotal = grandTotalValue
                     let grandCost = grandTotalCost
                     let grandPnl = grandTotal - grandCost
@@ -80,7 +79,7 @@ struct PortfolioListView: View {
                             Text("Total value")
                                 .font(.inter(10, relativeTo: .caption))
                                 .foregroundColor(.secondary)
-                            Text(String(format: "%.2f%@", grandTotal, currSym))
+                            Text(StorageService.currencyAmount(grandTotal, code: storageService.preferredCurrency))
                                 .font(.inter(13, relativeTo: .body).monospacedDigit())
                                 .fontWeight(.bold)
                         }
@@ -90,7 +89,7 @@ struct PortfolioListView: View {
                                 .font(.inter(10, relativeTo: .caption))
                                 .foregroundColor(.secondary)
                             HStack(spacing: 2) {
-                                Text(String(format: "%+.2f%@", grandPnl, currSym))
+                                Text(StorageService.currencyAmount(grandPnl, code: storageService.preferredCurrency, signed: true))
                                 Text(String(format: "(%.1f%%)", grandPnlPct))
                             }
                             .font(.inter(13, relativeTo: .body).monospacedDigit())
@@ -143,7 +142,7 @@ struct PortfolioListView: View {
                             Image(systemName: "plus.circle.fill")
                             Text("New portfolio")
                         }
-                        .font(.inter(10, relativeTo: .caption))
+                        .font(.inter(11, relativeTo: .caption))
                     }
                     .buttonStyle(.borderless)
 
@@ -154,7 +153,7 @@ struct PortfolioListView: View {
                             Image(systemName: "square.and.arrow.down")
                             Text("Import")
                         }
-                        .font(.inter(10, relativeTo: .caption))
+                        .font(.inter(11, relativeTo: .caption))
                     }
                     .buttonStyle(.borderless)
 
@@ -163,7 +162,7 @@ struct PortfolioListView: View {
                             Image(systemName: "square.and.arrow.up")
                             Text("Export All")
                         }
-                        .font(.inter(10, relativeTo: .caption))
+                        .font(.inter(11, relativeTo: .caption))
                     }
                     .buttonStyle(.borderless)
                     .disabled(storageService.portfolios.isEmpty)
@@ -193,7 +192,8 @@ struct PortfolioListView: View {
         storageService.portfolios.reduce(0) { total, portfolio in
             total + portfolio.holdings.reduce(0) { sum, holding in
                 guard let quote = stockService.quotes[holding.symbol] else { return sum }
-                let rate = stockService.rate(from: quote.currency, for: holding.purchaseDate)
+                let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
+                let rate = stockService.rate(from: costCurrency, for: holding.purchaseDate)
                 return sum + (holding.avgPrice * holding.quantity) * rate
             }
         }
@@ -290,10 +290,6 @@ struct PortfolioSection: View {
         }
     }
 
-    private var currSymbol: String {
-        StorageService.currencySymbol(for: storageService.preferredCurrency)
-    }
-
     var totalValue: Double {
         portfolio.holdings.reduce(0) { sum, holding in
             guard let quote = stockService.quotes[holding.symbol] else { return sum }
@@ -309,7 +305,8 @@ struct PortfolioSection: View {
     var totalCost: Double {
         portfolio.holdings.reduce(0) { sum, holding in
             guard let quote = stockService.quotes[holding.symbol] else { return sum }
-            let rate = stockService.rate(from: quote.currency, for: holding.purchaseDate)
+            let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
+            let rate = stockService.rate(from: costCurrency, for: holding.purchaseDate)
             return sum + (holding.avgPrice * holding.quantity) * rate
         }
     }
@@ -327,7 +324,7 @@ struct PortfolioSection: View {
                     Text("Total value")
                         .font(.inter(10, relativeTo: .caption))
                         .foregroundColor(.secondary)
-                    Text(String(format: "%.2f%@", totalValue, currSymbol))
+                    Text(StorageService.currencyAmount(totalValue, code: storageService.preferredCurrency))
                         .font(.inter(13, relativeTo: .body).monospacedDigit())
                         .fontWeight(.semibold)
                 }
@@ -337,7 +334,7 @@ struct PortfolioSection: View {
                         .font(.inter(10, relativeTo: .caption))
                         .foregroundColor(.secondary)
                     HStack(spacing: 2) {
-                        Text(String(format: "%+.2f%@", totalPnl, currSymbol))
+                        Text(StorageService.currencyAmount(totalPnl, code: storageService.preferredCurrency, signed: true))
                         Text(String(format: "(%.1f%%)", totalPnlPercent))
                     }
                     .font(.inter(13, relativeTo: .body).monospacedDigit())
@@ -435,6 +432,10 @@ struct HoldingRow: View {
         stockService.quotes[holding.symbol]
     }
 
+    private var fallbackCostCurrency: String {
+        holding.avgPriceCurrency ?? ""
+    }
+
     private func formatQty(_ qty: Double) -> String {
         qty == qty.rounded(.down) ? String(format: "%.0f", qty) : String(format: "%.2f", qty)
     }
@@ -446,7 +447,7 @@ struct HoldingRow: View {
                 Text(holding.symbol)
                     .font(.inter(13, relativeTo: .body).monospacedDigit())
                     .fontWeight(.bold)
-                Text("\(formatQty(holding.quantity))\u{00D7}\(String(format: "%.2f", holding.avgPrice))")
+                Text("\(formatQty(holding.quantity))\u{00D7}\(StorageService.currencyAmount(holding.avgPrice, code: quote.map { holding.costCurrency(quoteCurrency: $0.currency) } ?? fallbackCostCurrency))")
                     .font(.inter(10, relativeTo: .caption).monospacedDigit())
                     .foregroundColor(.secondary)
             }
@@ -456,12 +457,12 @@ struct HoldingRow: View {
                 let rate = stockService.rate(from: quote.currency)
                 let pRate = stockService.priceRate(from: quote.currency)
                 let priceCurr = storageService.stockPriceCurrency
-                let priceSymbol = StorageService.currencySymbol(for: priceCurr.isEmpty ? quote.currency : priceCurr)
-                let prefSymbol = StorageService.currencySymbol(for: storageService.preferredCurrency)
+                let displayCurrency = priceCurr.isEmpty ? quote.currency : priceCurr
+                let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
 
                 // Col 2: Price + badge
                 HStack(spacing: 3) {
-                    Text(String(format: "%.2f %@", quote.displayPrice(extendedHours: storageService.showExtendedHours) * pRate, priceSymbol))
+                    Text(StorageService.currencyAmount(quote.displayPrice(extendedHours: storageService.showExtendedHours) * pRate, code: displayCurrency))
                         .font(.inter(13, relativeTo: .body).monospacedDigit())
                         .fontWeight(.medium)
                     if storageService.showExtendedHours, quote.isExtendedHours, !quote.marketStateLabel.isEmpty {
@@ -481,16 +482,16 @@ struct HoldingRow: View {
                 // Col 3: Controvalore + P&L in preferred currency
                 let displayPrice = quote.displayPrice(extendedHours: storageService.showExtendedHours)
                 let marketVal = holding.marketValue(currentPrice: displayPrice) * rate
-                let costRate = stockService.rate(from: quote.currency, for: holding.purchaseDate)
+                let costRate = stockService.rate(from: costCurrency, for: holding.purchaseDate)
                 let costBasis = holding.avgPrice * holding.quantity * costRate
                 let pnl = marketVal - costBasis
                 let pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0
 
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(String(format: "%.2f%@", marketVal, prefSymbol))
+                    Text(StorageService.currencyAmount(marketVal, code: storageService.preferredCurrency))
                         .font(.inter(13, relativeTo: .body).monospacedDigit())
                         .fontWeight(.medium)
-                    Text(String(format: "%+.2f%@ (%.1f%%)", pnl, prefSymbol, pnlPct))
+                    Text("\(StorageService.currencyAmount(pnl, code: storageService.preferredCurrency, signed: true)) (\(String(format: "%.1f%%", pnlPct)))")
                         .font(.inter(10, relativeTo: .caption).monospacedDigit())
                         .foregroundColor(pnl >= 0 ? .green : .red)
                 }
@@ -527,6 +528,7 @@ struct EditHoldingView: View {
 
     @State private var quantityText: String
     @State private var avgPriceText: String
+    @State private var avgPriceCurrency: String
     @State private var purchaseDate: Date
 
     init(portfolioId: UUID, holding: Holding, isPresented: Binding<(portfolioId: UUID, holding: Holding)?>) {
@@ -535,18 +537,20 @@ struct EditHoldingView: View {
         self._isPresented = isPresented
         _quantityText = State(initialValue: String(format: "%.2f", holding.quantity))
         _avgPriceText = State(initialValue: String(format: "%.2f", holding.avgPrice))
+        _avgPriceCurrency = State(initialValue: holding.avgPriceCurrency ?? "")
         _purchaseDate = State(initialValue: holding.purchaseDate ?? Date())
     }
 
-    private var costBasisInfo: (costInStock: Double, rate: Double, costInPreferred: Double)? {
+    private var costBasisInfo: (costInSelected: Double, selectedCurrency: String, rate: Double, costInPreferred: Double)? {
         guard let qty = Double(quantityText.replacingOccurrences(of: ",", with: ".")),
               let price = Double(avgPriceText.replacingOccurrences(of: ",", with: ".")),
               let quote = stockService.quotes[holding.symbol],
               qty > 0, price > 0
         else { return nil }
-        let costInStock = price * qty
-        let rate = stockService.rate(from: quote.currency, for: purchaseDate)
-        return (costInStock, rate, costInStock * rate)
+        let selectedCurrency = avgPriceCurrency.isEmpty ? quote.currency : avgPriceCurrency
+        let costInSelected = price * qty
+        let rate = stockService.rate(from: selectedCurrency, for: purchaseDate)
+        return (costInSelected, selectedCurrency, rate, costInSelected * rate)
     }
 
     var body: some View {
@@ -580,6 +584,21 @@ struct EditHoldingView: View {
             .padding(.horizontal)
 
             VStack(alignment: .leading) {
+                Text("Avg price currency")
+                    .font(.inter(10, relativeTo: .caption))
+                    .foregroundColor(.secondary)
+                Picker("Avg price currency", selection: $avgPriceCurrency) {
+                    Text("Quote currency").tag("")
+                    ForEach(StorageService.supportedCurrencies, id: \.self) { code in
+                        Text("\(StorageService.currencySymbol(for: code)) \(code)")
+                            .tag(code)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            .padding(.horizontal)
+
+            VStack(alignment: .leading) {
                 Text("Purchase date")
                     .font(.inter(10, relativeTo: .caption))
                     .foregroundColor(.secondary)
@@ -589,11 +608,9 @@ struct EditHoldingView: View {
             }
             .padding(.horizontal)
 
-            if let quote = stockService.quotes[holding.symbol], quote.currency != storageService.preferredCurrency, let info = costBasisInfo {
-                let stockSym = StorageService.currencySymbol(for: quote.currency)
-                let prefSym = StorageService.currencySymbol(for: storageService.preferredCurrency)
+            if let info = costBasisInfo, info.selectedCurrency != storageService.preferredCurrency {
                 let dateStr = Self.dateFormatter.string(from: purchaseDate)
-                Text("Cost basis: \(String(format: "%.2f", info.costInPreferred))\(prefSym) (\(String(format: "%.2f", info.costInStock))\(stockSym) × \(String(format: "%.4f", info.rate)) on \(dateStr))")
+                Text("Cost basis: \(StorageService.currencyAmount(info.costInPreferred, code: storageService.preferredCurrency)) (\(StorageService.currencyAmount(info.costInSelected, code: info.selectedCurrency)) × \(String(format: "%.4f", info.rate)) on \(dateStr))")
                     .font(.inter(10, relativeTo: .caption))
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
@@ -611,12 +628,17 @@ struct EditHoldingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             Task {
-                await stockService.ensureHistoricalRate(for: Holding(id: holding.id, symbol: holding.symbol, quantity: holding.quantity, avgPrice: holding.avgPrice, purchaseDate: purchaseDate))
+                await stockService.ensureHistoricalRate(for: Holding(id: holding.id, symbol: holding.symbol, quantity: holding.quantity, avgPrice: holding.avgPrice, avgPriceCurrency: avgPriceCurrency, purchaseDate: purchaseDate))
             }
         }
         .onChange(of: purchaseDate) { _, _ in
             Task {
-                await stockService.ensureHistoricalRate(for: Holding(id: holding.id, symbol: holding.symbol, quantity: Double(quantityText.replacingOccurrences(of: ",", with: ".")) ?? 0, avgPrice: Double(avgPriceText.replacingOccurrences(of: ",", with: ".")) ?? 0, purchaseDate: purchaseDate))
+                await stockService.ensureHistoricalRate(for: draftHolding)
+            }
+        }
+        .onChange(of: avgPriceCurrency) { _, _ in
+            Task {
+                await stockService.ensureHistoricalRate(for: draftHolding)
             }
         }
     }
@@ -627,12 +649,23 @@ struct EditHoldingView: View {
         return f
     }()
 
+    private var draftHolding: Holding {
+        Holding(
+            id: holding.id,
+            symbol: holding.symbol,
+            quantity: Double(quantityText.replacingOccurrences(of: ",", with: ".")) ?? 0,
+            avgPrice: Double(avgPriceText.replacingOccurrences(of: ",", with: ".")) ?? 0,
+            avgPriceCurrency: avgPriceCurrency,
+            purchaseDate: purchaseDate
+        )
+    }
+
     private func save() {
         guard let qty = Double(quantityText.replacingOccurrences(of: ",", with: ".")),
               let price = Double(avgPriceText.replacingOccurrences(of: ",", with: ".")),
               qty > 0, price > 0
         else { return }
-        storageService.updateHolding(in: portfolioId, holdingId: holding.id, quantity: qty, avgPrice: price, purchaseDate: purchaseDate)
+        storageService.updateHolding(in: portfolioId, holdingId: holding.id, quantity: qty, avgPrice: price, avgPriceCurrency: avgPriceCurrency, purchaseDate: purchaseDate)
         Task {
             await stockService.refreshAll(storageService: storageService)
         }

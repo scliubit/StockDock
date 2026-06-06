@@ -119,11 +119,11 @@ enum AlertEvaluator {
                    fiftyTwoWeekLow: quote.fiftyTwoWeekLow)
     }
 
-    /// Human-readable summary, e.g. "Price rises above 200.00" — used in the UI.
-    static func describe(_ alert: PriceAlert, currencySymbol: String) -> String {
+    /// Human-readable summary used in the UI.
+    static func describe(_ alert: PriceAlert, currencyCode: String) -> String {
         switch alert.condition.thresholdKind {
         case .price:
-            return "\(alert.condition.label) \(String(format: "%.2f", alert.threshold)) \(currencySymbol)"
+            return "\(alert.condition.label) \(StorageService.currencyAmount(alert.threshold, code: currencyCode))"
         case .percent:
             switch alert.condition {
             case .near52WeekHigh, .near52WeekLow:

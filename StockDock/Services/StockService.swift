@@ -69,6 +69,15 @@ class StockService: ObservableObject {
                 pairs.insert("\(quote.currency)|\(priceCurrency)")
             }
         }
+        for portfolio in storageService.portfolios {
+            for holding in portfolio.holdings {
+                guard let quote = quotes[holding.symbol] else { continue }
+                let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
+                if costCurrency != preferredCurrency {
+                    pairs.insert("\(costCurrency)|\(preferredCurrency)")
+                }
+            }
+        }
 
         // Evict exchange rates no longer needed
         let neededRateKeys = Set(pairs.compactMap { pair -> String? in
@@ -98,14 +107,15 @@ class StockService: ObservableObject {
             for holding in portfolio.holdings {
                 guard let purchaseDate = holding.purchaseDate,
                       let quote = quotes[holding.symbol],
-                      quote.currency != preferredCurrency
+                      holding.costCurrency(quoteCurrency: quote.currency) != preferredCurrency
                 else { continue }
+                let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
                 let dayStart = Calendar.current.startOfDay(for: purchaseDate)
                 let ts = Int(dayStart.timeIntervalSince1970)
-                let cacheKey = "\(quote.currency)\(preferredCurrency):\(ts)"
+                let cacheKey = "\(costCurrency)\(preferredCurrency):\(ts)"
                 neededHistoricalKeys.insert(cacheKey)
                 if historicalRates[cacheKey] == nil {
-                    historicalKeysToFetch.insert("\(quote.currency)|\(preferredCurrency)|\(ts)")
+                    historicalKeysToFetch.insert("\(costCurrency)|\(preferredCurrency)|\(ts)")
                 }
             }
         }
@@ -406,13 +416,14 @@ class StockService: ObservableObject {
     func ensureHistoricalRate(for holding: Holding) async {
         guard let purchaseDate = holding.purchaseDate,
               let quote = quotes[holding.symbol],
-              quote.currency != StorageService.shared.preferredCurrency
+              holding.costCurrency(quoteCurrency: quote.currency) != StorageService.shared.preferredCurrency
         else { return }
+        let costCurrency = holding.costCurrency(quoteCurrency: quote.currency)
         let dayStart = Calendar.current.startOfDay(for: purchaseDate)
         let ts = Int(dayStart.timeIntervalSince1970)
-        let key = "\(quote.currency)\(StorageService.shared.preferredCurrency):\(ts)"
+        let key = "\(costCurrency)\(StorageService.shared.preferredCurrency):\(ts)"
         guard historicalRates[key] == nil else { return }
-        await fetchHistoricalExchangeRate(from: quote.currency, to: StorageService.shared.preferredCurrency, dateTimestamp: ts)
+        await fetchHistoricalExchangeRate(from: costCurrency, to: StorageService.shared.preferredCurrency, dateTimestamp: ts)
     }
 
     /// Update a quote from a WebSocket tick. Returns true if the quote was meaningful.

@@ -80,7 +80,7 @@ Click the gear icon tab to configure:
 | Setting | Description |
 |---|---|
 | **Stock Price Currency** | Convert all displayed prices to a single currency, or keep original |
-| **Portfolio Currency** | Base currency for portfolio totals and P&L (EUR, USD, GBP, CHF, JPY, CAD, AUD) |
+| **Portfolio Currency** | Base currency for portfolio totals and P&L |
 | **Show Extended Hours** | Toggle pre-market and after-hours prices on/off — affects prices, P&L, and menu bar |
 | **Menu Bar Display** | What appears in your menu bar (see below) |
 
@@ -88,10 +88,10 @@ Click the gear icon tab to configure:
 
 | Option | Example |
 |---|---|
-| P&L | `P&L +321.09€` |
+| P&L | `P&L +€321.09` |
 | P&L % | `P&L +2.3%` |
-| P&L + % | `+321.09€ (+2.3%)` |
-| Total Value | `14396.67€` |
+| P&L + % | `+€321.09 (+2.3%)` |
+| Total Value | `€14396.67` |
 | Best Stock | `AAPL +1.2%` |
 | Worst Stock | `TSLA -0.8%` |
 | Best & Worst | `▲AAPL +1.2%  ▼TSLA -0.8%` |

@@ -81,7 +81,7 @@ struct SearchView: View {
                             Spacer()
 
                             if let quote = stockService.quotes[result.symbol] {
-                                Text("\(quote.price.formatted(.number.precision(.fractionLength(2)))) \(quote.currency)")
+                                Text(StorageService.currencyAmount(quote.price, code: quote.currency))
                                     .font(.inter(13, relativeTo: .body).monospacedDigit())
                                     .foregroundColor(.primary)
                             }

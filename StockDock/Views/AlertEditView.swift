@@ -13,8 +13,12 @@ struct AlertEditView: View {
 
     private var quote: StockQuote? { stockService.quotes[symbol] }
 
+    private var currencyCode: String {
+        quote?.currency ?? storageService.preferredCurrency
+    }
+
     private var currencySymbol: String {
-        StorageService.currencySymbol(for: quote?.currency ?? storageService.preferredCurrency)
+        StorageService.currencySymbol(for: currencyCode)
     }
 
     private var thresholdUnit: String {
@@ -51,15 +55,21 @@ struct AlertEditView: View {
                 Text(thresholdLabel)
                     .font(.inter(10, relativeTo: .caption)).foregroundColor(.secondary)
                 HStack(spacing: 6) {
+                    if condition.thresholdKind == .price {
+                        Text(currencySymbol)
+                            .font(.inter(11, relativeTo: .body)).foregroundColor(.secondary)
+                    }
                     TextField(placeholder, text: $thresholdText)
                         .textFieldStyle(.roundedBorder)
-                    Text(thresholdUnit)
-                        .font(.inter(11, relativeTo: .body)).foregroundColor(.secondary)
+                    if condition.thresholdKind == .percent {
+                        Text(thresholdUnit)
+                            .font(.inter(11, relativeTo: .body)).foregroundColor(.secondary)
+                    }
                 }
             }
 
             if let q = quote {
-                Text("Current price: \(String(format: "%.2f", q.effectivePrice)) \(currencySymbol)")
+                Text("Current price: \(StorageService.currencyAmount(q.effectivePrice, code: q.currency))")
                     .font(.inter(10, relativeTo: .caption)).foregroundColor(.secondary)
             }
 
