@@ -1,5 +1,20 @@
 import Foundation
 
+enum WatchlistSortColumn: String, Codable {
+    case symbol, price, change
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = WatchlistSortColumn(rawValue: rawValue) ?? .symbol
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
 @MainActor
 class StorageService: ObservableObject {
     static let shared = StorageService()
@@ -39,6 +54,14 @@ class StorageService: ObservableObject {
         didSet { scheduleSave() }
     }
     @Published var showAbsoluteChange: Bool = true {
+        didSet { scheduleSave() }
+    }
+
+    @Published var watchlistSortColumn: WatchlistSortColumn = .symbol {
+        didSet { scheduleSave() }
+    }
+
+    @Published var watchlistSortAscending: Bool = true {
         didSet { scheduleSave() }
     }
 
@@ -225,6 +248,8 @@ class StorageService: ObservableObject {
         showDayRange = true
         show52WeekBar = true
         showAbsoluteChange = true
+        watchlistSortColumn = .symbol
+        watchlistSortAscending = true
         menuBarDisplay = "pnl"
         fontSizeLevel = 9
         fontFamily = "Inter Variable"
@@ -290,6 +315,8 @@ class StorageService: ObservableObject {
         var showDayRange: Bool?
         var show52WeekBar: Bool?
         var showAbsoluteChange: Bool?
+        var watchlistSortColumn: WatchlistSortColumn?
+        var watchlistSortAscending: Bool?
     }
 
     private func scheduleSave() {
@@ -303,7 +330,7 @@ class StorageService: ObservableObject {
     }
 
     private func performSave() {
-        let data = AppData(watchlist: watchlist, portfolios: portfolios, preferredCurrency: preferredCurrency, stockPriceCurrency: stockPriceCurrency, showExtendedHours: showExtendedHours, liveUpdateInterval: liveUpdateInterval, menuBarDisplay: menuBarDisplay, isinMap: isinMap, fontSizeLevel: fontSizeLevel, fontFamily: fontFamily, alerts: alerts, showCompanyName: showCompanyName, showDayRange: showDayRange, show52WeekBar: show52WeekBar, showAbsoluteChange: showAbsoluteChange)
+        let data = AppData(watchlist: watchlist, portfolios: portfolios, preferredCurrency: preferredCurrency, stockPriceCurrency: stockPriceCurrency, showExtendedHours: showExtendedHours, liveUpdateInterval: liveUpdateInterval, menuBarDisplay: menuBarDisplay, isinMap: isinMap, fontSizeLevel: fontSizeLevel, fontFamily: fontFamily, alerts: alerts, showCompanyName: showCompanyName, showDayRange: showDayRange, show52WeekBar: show52WeekBar, showAbsoluteChange: showAbsoluteChange, watchlistSortColumn: watchlistSortColumn, watchlistSortAscending: watchlistSortAscending)
         do {
             let encoded = try JSONEncoder().encode(data)
             try encoded.write(to: fileURL, options: .atomic)
@@ -336,6 +363,8 @@ class StorageService: ObservableObject {
             showDayRange = decoded.showDayRange ?? true
             show52WeekBar = decoded.show52WeekBar ?? true
             showAbsoluteChange = decoded.showAbsoluteChange ?? true
+            watchlistSortColumn = decoded.watchlistSortColumn ?? .symbol
+            watchlistSortAscending = decoded.watchlistSortAscending ?? true
             fontSizeLevel = decoded.fontSizeLevel ?? 9
             fontFamily = decoded.fontFamily ?? "Inter Variable"
             FontRegistration.familyName = fontFamily

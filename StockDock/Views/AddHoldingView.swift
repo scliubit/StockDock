@@ -15,6 +15,7 @@ struct AddHoldingView: View {
     @State private var searchResults: [SearchResult] = []
     @State private var selectedSymbol: String?
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         VStack(spacing: 12) {
@@ -53,6 +54,7 @@ struct AddHoldingView: View {
             } else {
                 TextField("Symbol, name or ISIN (e.g. AAPL, IE00B4L5Y983)", text: $searchText)
                     .textFieldStyle(.roundedBorder)
+                    .focused($isSearchFocused)
                     .padding(.horizontal)
                     .onChange(of: searchText) { _, newValue in
                         searchTask?.cancel()
@@ -154,6 +156,20 @@ struct AddHoldingView: View {
             .padding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            focusSearchField()
+        }
+        .onChange(of: selectedSymbol) { _, newValue in
+            if newValue == nil {
+                focusSearchField()
+            }
+        }
+    }
+
+    private func focusSearchField() {
+        DispatchQueue.main.async {
+            isSearchFocused = true
+        }
     }
 
     private func addHolding() {

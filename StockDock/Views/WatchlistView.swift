@@ -7,31 +7,27 @@ struct WatchlistView: View {
     @State private var searchText = ""
     @State private var addToPortfolio: (symbol: String, portfolioId: UUID)? = nil
     @State private var alertSymbol: String? = nil
-    @State private var sortColumn: SortColumn = .change
-    @State private var sortAscending: Bool = false
-
-    enum SortColumn {
-        case symbol, price, change
-    }
 
     var sortedSymbols: [String] {
         storageService.watchlist.sorted { a, b in
             let qa = stockService.quotes[a]
             let qb = stockService.quotes[b]
-            let result: Bool
-            switch sortColumn {
+            switch storageService.watchlistSortColumn {
             case .symbol:
-                result = a.localizedCompare(b) == .orderedAscending
+                let comparison = a.localizedStandardCompare(b)
+                guard comparison != .orderedSame else { return false }
+                return storageService.watchlistSortAscending ? comparison == .orderedAscending : comparison == .orderedDescending
             case .price:
                 let pa = qa?.price ?? 0
                 let pb = qb?.price ?? 0
-                result = pa < pb
+                if pa == pb { return a.localizedStandardCompare(b) == .orderedAscending }
+                return storageService.watchlistSortAscending ? pa < pb : pa > pb
             case .change:
                 let ca = qa?.changePercent ?? 0
                 let cb = qb?.changePercent ?? 0
-                result = ca < cb
+                if ca == cb { return a.localizedStandardCompare(b) == .orderedAscending }
+                return storageService.watchlistSortAscending ? ca < cb : ca > cb
             }
-            return sortAscending ? result : !result
         }
     }
 
@@ -95,7 +91,7 @@ struct WatchlistView: View {
             }
             .font(.inter(10, weight: .medium, relativeTo: .caption))
             .foregroundColor(.secondary)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 8)
             .padding(.vertical, 4)
 
             Divider()
@@ -172,24 +168,37 @@ struct WatchlistView: View {
     }
 
     @ViewBuilder
-    private func sortHeader(_ title: String, column: SortColumn) -> some View {
+    private func sortHeader(_ title: String, column: WatchlistSortColumn) -> some View {
         Button(action: {
-            if sortColumn == column {
-                sortAscending.toggle()
+            if storageService.watchlistSortColumn == column {
+                storageService.watchlistSortAscending.toggle()
             } else {
-                sortColumn = column
-                sortAscending = column == .symbol
+                storageService.watchlistSortColumn = column
+                storageService.watchlistSortAscending = column == .symbol
             }
         }) {
             HStack(spacing: 2) {
                 Text(title)
-                if sortColumn == column {
-                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                if storageService.watchlistSortColumn == column {
+                    Image(systemName: storageService.watchlistSortAscending ? "chevron.up" : "chevron.down")
                         .font(.inter(8, relativeTo: .caption2))
                 }
             }
+            .frame(maxWidth: .infinity, alignment: headerAlignment(for: column))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func headerAlignment(for column: WatchlistSortColumn) -> Alignment {
+        switch column {
+        case .symbol:
+            return .leading
+        case .price:
+            return .center
+        case .change:
+            return .trailing
+        }
     }
 
     @ViewBuilder
@@ -243,6 +252,7 @@ struct QuickAddHoldingView: View {
     @State private var avgPriceText = ""
     @State private var avgPriceCurrency = ""
     @State private var purchaseDate = Date()
+    @FocusState private var isQuantityFocused: Bool
 
     var body: some View {
         VStack(spacing: 12) {
@@ -259,6 +269,7 @@ struct QuickAddHoldingView: View {
                     Text("Quantity").font(.inter(10, relativeTo: .caption)).foregroundColor(.secondary)
                     TextField("0", text: $quantityText)
                         .textFieldStyle(.roundedBorder)
+                        .focused($isQuantityFocused)
                 }
                 VStack(alignment: .leading) {
                     Text("Avg price").font(.inter(10, relativeTo: .caption)).foregroundColor(.secondary)
@@ -306,6 +317,13 @@ struct QuickAddHoldingView: View {
             if let quote = stockService.quotes[symbol] {
                 avgPriceText = String(format: "%.2f", quote.price)
             }
+            focusQuantityField()
+        }
+    }
+
+    private func focusQuantityField() {
+        DispatchQueue.main.async {
+            isQuantityFocused = true
         }
     }
 }

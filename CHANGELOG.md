@@ -4,6 +4,9 @@ All notable changes to StockDock are tracked here.
 
 ## Unreleased
 
+- Focused the first text field when opening add stock, add holding, quick-add holding, and new portfolio flows.
+- Fixed watchlist sorting so the selected column and direction persist across page changes, with Symbol as the default sort.
+- Aligned the watchlist Symbol column header with the row content.
 - Added a Settings toggle for launching StockDock automatically at login.
 - Improved launch-at-login handling for local app builds.
 - Extended the live menu bar refresh interval range up to 5 seconds.

@@ -16,6 +16,7 @@ struct SearchView: View {
     @State private var results: [SearchResult] = []
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var isQueryFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,6 +31,7 @@ struct SearchView: View {
 
             TextField("Symbol, name or ISIN (e.g. AAPL, Tesla, IE00B4L5Y983)", text: $query)
                 .textFieldStyle(.roundedBorder)
+                .focused($isQueryFocused)
                 .padding(.horizontal)
                 .onChange(of: query) { _, newValue in
                     searchTask?.cancel()
@@ -110,6 +112,15 @@ struct SearchView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            focusQueryField()
+        }
+    }
+
+    private func focusQueryField() {
+        DispatchQueue.main.async {
+            isQueryFocused = true
+        }
     }
 
     private var queryLooksLikeISIN: Bool {

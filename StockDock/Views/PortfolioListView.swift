@@ -8,6 +8,7 @@ struct PortfolioListView: View {
     @State private var newPortfolioName = ""
     @State private var searchText = ""
     @State private var importAlert: String?
+    @FocusState private var isNewPortfolioNameFocused: Bool
 
     var filteredPortfolios: [Portfolio] {
         guard !searchText.isEmpty else { return storageService.portfolios }
@@ -29,7 +30,7 @@ struct PortfolioListView: View {
                 Text("No portfolios")
                     .foregroundColor(.secondary)
                 Button("Create portfolio") {
-                    showNewPortfolio = true
+                    showNewPortfolioEditor()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -108,8 +109,12 @@ struct PortfolioListView: View {
                         HStack {
                             TextField("Portfolio name", text: $newPortfolioName)
                                 .textFieldStyle(.roundedBorder)
+                                .focused($isNewPortfolioNameFocused)
                                 .onSubmit {
                                     createPortfolio()
+                                }
+                                .onAppear {
+                                    focusNewPortfolioNameField()
                                 }
                             Button("OK") {
                                 createPortfolio()
@@ -137,7 +142,7 @@ struct PortfolioListView: View {
                 Divider()
 
                 HStack {
-                    Button(action: { showNewPortfolio = true }) {
+                    Button(action: { showNewPortfolioEditor() }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
                             Text("New portfolio")
@@ -175,6 +180,11 @@ struct PortfolioListView: View {
             Button("OK") { importAlert = nil }
         } message: {
             Text(importAlert ?? "")
+        }
+        .onChange(of: showNewPortfolio) { _, isShowing in
+            if isShowing {
+                focusNewPortfolioNameField()
+            }
         }
     }
 
@@ -259,6 +269,17 @@ struct PortfolioListView: View {
         storageService.addPortfolio(name: newPortfolioName)
         newPortfolioName = ""
         showNewPortfolio = false
+    }
+
+    private func showNewPortfolioEditor() {
+        showNewPortfolio = true
+        focusNewPortfolioNameField()
+    }
+
+    private func focusNewPortfolioNameField() {
+        DispatchQueue.main.async {
+            isNewPortfolioNameFocused = true
+        }
     }
 }
 
