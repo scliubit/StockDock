@@ -1,6 +1,6 @@
 import Foundation
 
-struct StockQuote: Identifiable, Codable {
+struct StockQuote: Identifiable, Codable, Equatable {
     let symbol: String
     let name: String
     let price: Double

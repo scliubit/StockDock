@@ -11,6 +11,9 @@ class StockService: ObservableObject {
 
     private let session: URLSession
     private var crumb: String?
+    private var exchangeRateFetchedAt: [String: Date] = [:]
+
+    private static let exchangeRateTTL: TimeInterval = 10 * 60
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -43,7 +46,13 @@ class StockService: ObservableObject {
 
         // Evict quotes for symbols no longer tracked
         let staleKeys = Set(quotes.keys).subtracting(allSymbols)
-        for key in staleKeys { quotes.removeValue(forKey: key) }
+        if !staleKeys.isEmpty {
+            var nextQuotes = quotes
+            for key in staleKeys {
+                nextQuotes.removeValue(forKey: key)
+            }
+            quotes = nextQuotes
+        }
 
         await fetchQuotes(symbols: Array(allSymbols))
         await refreshExchangeRates(storageService: storageService)
@@ -86,10 +95,29 @@ class StockService: ObservableObject {
             return "\(parts[0])\(parts[1])"
         })
         let staleRateKeys = Set(exchangeRates.keys).subtracting(neededRateKeys)
-        for key in staleRateKeys { exchangeRates.removeValue(forKey: key) }
+        if !staleRateKeys.isEmpty {
+            var nextRates = exchangeRates
+            for key in staleRateKeys {
+                nextRates.removeValue(forKey: key)
+                exchangeRateFetchedAt.removeValue(forKey: key)
+            }
+            exchangeRates = nextRates
+        }
 
-        await withTaskGroup(of: Void.self) { group in
-            for pair in pairs {
+        let now = Date()
+        let pairsToFetch = pairs.filter { pair in
+            let parts = pair.split(separator: "|")
+            guard parts.count >= 2 else { return false }
+            let key = "\(parts[0])\(parts[1])"
+            guard exchangeRates[key] != nil, let fetchedAt = exchangeRateFetchedAt[key] else {
+                return true
+            }
+            return now.timeIntervalSince(fetchedAt) >= Self.exchangeRateTTL
+        }
+
+        var fetchedRates: [String: Double] = [:]
+        await withTaskGroup(of: (String, Double)?.self) { group in
+            for pair in pairsToFetch {
                 let parts = pair.split(separator: "|")
                 guard parts.count >= 2 else { continue }
                 let from = String(parts[0])
@@ -97,6 +125,22 @@ class StockService: ObservableObject {
                 group.addTask { [weak self] in
                     await self?.fetchExchangeRate(from: from, to: to)
                 }
+            }
+
+            for await result in group {
+                guard let (key, rate) = result else { continue }
+                fetchedRates[key] = rate
+            }
+        }
+
+        if !fetchedRates.isEmpty {
+            var nextRates = exchangeRates
+            for (key, rate) in fetchedRates {
+                nextRates[key] = rate
+                exchangeRateFetchedAt[key] = now
+            }
+            if nextRates != exchangeRates {
+                exchangeRates = nextRates
             }
         }
 
@@ -148,13 +192,20 @@ class StockService: ObservableObject {
         }
 
         // Fallback: fetch each symbol via v8 chart API
-        await withTaskGroup(of: Void.self) { group in
+        var fetchedQuotes: [StockQuote] = []
+        await withTaskGroup(of: StockQuote?.self) { group in
             for symbol in symbols {
                 group.addTask { [weak self] in
                     await self?.fetchSingleQuote(symbol: symbol)
                 }
             }
+
+            for await quote in group {
+                guard let quote else { continue }
+                fetchedQuotes.append(quote)
+            }
         }
+        mergeQuotes(fetchedQuotes)
     }
 
     // MARK: - v7 Quote API (batch, live extended hours)
@@ -204,6 +255,7 @@ class StockService: ObservableObject {
             let decoded = try JSONDecoder().decode(YahooV7Response.self, from: data)
             guard let results = decoded.quoteResponse.result, !results.isEmpty else { return false }
 
+            var fetchedQuotes: [StockQuote] = []
             for q in results {
                 let price = q.regularMarketPrice
                 let previousClose = q.regularMarketPreviousClose ?? price
@@ -245,21 +297,22 @@ class StockService: ObservableObject {
                     postMarketChangePercent: postPct
                 )
 
-                quotes[q.symbol] = quote
+                fetchedQuotes.append(quote)
             }
 
+            mergeQuotes(fetchedQuotes)
             return true
         } catch {
             return false
         }
     }
 
-    private func fetchSingleQuote(symbol: String) async {
+    private func fetchSingleQuote(symbol: String) async -> StockQuote? {
         let encoded = symbol.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? symbol
 
         // Two requests: daily for reliable price, intraday for extended hours
         guard let dailyUrl = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1d&range=2d"),
-              let intraUrl = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1m&range=5d&includePrePost=true") else { return }
+              let intraUrl = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1m&range=5d&includePrePost=true") else { return nil }
 
         do {
             // Fetch both in parallel
@@ -268,7 +321,7 @@ class StockService: ObservableObject {
 
             let (dailyData, _) = try await dailyFetch
             let dailyResponse = try JSONDecoder().decode(YahooChartResponse.self, from: dailyData)
-            guard let dailyResult = dailyResponse.chart.result?.first else { return }
+            guard let dailyResult = dailyResponse.chart.result?.first else { return nil }
             let meta = dailyResult.meta
 
             let price = meta.regularMarketPrice
@@ -333,7 +386,7 @@ class StockService: ObservableObject {
             let postChg: Double? = if let pm = postMarketPrice { pm - price } else { nil }
             let postPct: Double? = if let ch = postChg, price > 0 { (ch / price) * 100 } else { nil }
 
-            let quote = StockQuote(
+            return StockQuote(
                 symbol: meta.symbol,
                 name: meta.longName ?? meta.shortName ?? meta.symbol,
                 price: price,
@@ -352,9 +405,8 @@ class StockService: ObservableObject {
                 postMarketChange: postChg,
                 postMarketChangePercent: postPct
             )
-
-            quotes[meta.symbol] = quote
         } catch {
+            return nil
         }
     }
 
@@ -376,19 +428,20 @@ class StockService: ObservableObject {
         return exchangeRates["\(currency)\(target)"] ?? 1.0
     }
 
-    private func fetchExchangeRate(from: String, to: String) async {
+    private func fetchExchangeRate(from: String, to: String) async -> (String, Double)? {
         let symbol = "\(from)\(to)=X"
         let encoded = symbol.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? symbol
-        guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1d&range=1d") else { return }
+        guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1d&range=1d") else { return nil }
 
         do {
             let (data, _) = try await session.data(from: url)
             let response = try JSONDecoder().decode(YahooChartResponse.self, from: data)
             if let result = response.chart.result?.first {
-                exchangeRates["\(from)\(to)"] = result.meta.regularMarketPrice
+                return ("\(from)\(to)", result.meta.regularMarketPrice)
             }
         } catch {
         }
+        return nil
     }
 
     private func fetchHistoricalExchangeRate(from: String, to: String, dateTimestamp: Int) async {
@@ -428,10 +481,40 @@ class StockService: ObservableObject {
 
     /// Update a quote from a WebSocket tick. Returns true if the quote was meaningful.
     func applyTick(_ ticker: Yaticker) -> Bool {
-        let symbol = ticker.id
-        guard !symbol.isEmpty, ticker.price > 0 else { return false }
+        !applyTicks([ticker]).isEmpty
+    }
 
-        let existing = quotes[symbol]
+    /// Updates quotes from WebSocket ticks in one published change. Returns symbols that changed.
+    @discardableResult
+    func applyTicks(_ tickers: [Yaticker]) -> Set<String> {
+        guard !tickers.isEmpty else { return [] }
+
+        // Keep only the newest tick per symbol in this flush.
+        var latest: [String: Yaticker] = [:]
+        for ticker in tickers where !ticker.id.isEmpty && ticker.price > 0 {
+            latest[ticker.id] = ticker
+        }
+        guard !latest.isEmpty else { return [] }
+
+        var nextQuotes = quotes
+        var changedSymbols = Set<String>()
+
+        for (_, ticker) in latest {
+            guard let quote = quote(from: ticker, existing: nextQuotes[ticker.id]) else { continue }
+            if nextQuotes[ticker.id] != quote {
+                nextQuotes[ticker.id] = quote
+                changedSymbols.insert(ticker.id)
+            }
+        }
+
+        guard !changedSymbols.isEmpty else { return [] }
+        quotes = nextQuotes
+        return changedSymbols
+    }
+
+    private func quote(from ticker: Yaticker, existing: StockQuote?) -> StockQuote? {
+        let symbol = ticker.id
+        guard !symbol.isEmpty, ticker.price > 0 else { return nil }
 
         let marketState: String
         switch ticker.marketHours {
@@ -444,18 +527,25 @@ class StockService: ObservableObject {
         let price = Double(ticker.price)
         let change = Double(ticker.change)
         let changePercent = Double(ticker.changePercent)
+        let name = if let existingName = existing?.name, !existingName.isEmpty {
+            existingName
+        } else if !ticker.shortName.isEmpty {
+            ticker.shortName
+        } else {
+            symbol
+        }
 
         // Keep extended hours data from existing quote if WSS doesn't provide it
-        let quote = StockQuote(
+        return StockQuote(
             symbol: symbol,
-            name: existing?.name ?? ticker.shortName,
+            name: name,
             price: price,
             change: change,
             changePercent: changePercent,
             currency: ticker.currency.isEmpty ? (existing?.currency ?? "USD") : ticker.currency,
             marketState: marketState,
-            dayHigh: existing?.dayHigh,
-            dayLow: existing?.dayLow,
+            dayHigh: ticker.dayHigh > 0 ? Double(ticker.dayHigh) : existing?.dayHigh,
+            dayLow: ticker.dayLow > 0 ? Double(ticker.dayLow) : existing?.dayLow,
             fiftyTwoWeekHigh: existing?.fiftyTwoWeekHigh,
             fiftyTwoWeekLow: existing?.fiftyTwoWeekLow,
             preMarketPrice: marketState == "PRE" ? price : existing?.preMarketPrice,
@@ -465,9 +555,25 @@ class StockService: ObservableObject {
             postMarketChange: marketState == "POST" ? change : existing?.postMarketChange,
             postMarketChangePercent: marketState == "POST" ? changePercent : existing?.postMarketChangePercent
         )
+    }
 
-        quotes[symbol] = quote
-        return true
+    @discardableResult
+    private func mergeQuotes(_ fetchedQuotes: [StockQuote]) -> Set<String> {
+        guard !fetchedQuotes.isEmpty else { return [] }
+
+        var nextQuotes = quotes
+        var changedSymbols = Set<String>()
+
+        for quote in fetchedQuotes {
+            if nextQuotes[quote.symbol] != quote {
+                nextQuotes[quote.symbol] = quote
+                changedSymbols.insert(quote.symbol)
+            }
+        }
+
+        guard !changedSymbols.isEmpty else { return [] }
+        quotes = nextQuotes
+        return changedSymbols
     }
 
     func search(query: String) async -> [SearchResult] {

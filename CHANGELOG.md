@@ -4,6 +4,7 @@ All notable changes to StockDock are tracked here.
 
 ## Unreleased
 
+- Reduced live refresh energy spikes by batching WebSocket quote updates and avoiding redundant background quote/FX refresh work.
 - Focused the first text field when opening add stock, add holding, quick-add holding, and new portfolio flows.
 - Fixed watchlist sorting so the selected column and direction persist across page changes, with Symbol as the default sort.
 - Aligned the watchlist Symbol column header with the row content.

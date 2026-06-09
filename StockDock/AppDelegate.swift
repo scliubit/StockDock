@@ -180,6 +180,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.flushTicks()
             }
         }
+        tickBatchTimer?.tolerance = min(interval * 0.2, 1.0)
     }
 
     private func flushTicks() {
@@ -193,16 +194,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             latest[tick.id] = tick
         }
 
-        var changed = false
-        for (_, tick) in latest {
-            if stockService.applyTick(tick) {
-                changed = true
-            }
-        }
+        let changedSymbols = stockService.applyTicks(Array(latest.values))
 
-        if changed {
+        if !changedSymbols.isEmpty {
             updateMenuBarTitle()
-            alertMonitor.check(quotes: stockService.quotes)
+            alertMonitor.check(quotes: stockService.quotes, limitingTo: changedSymbols)
         }
     }
 
@@ -228,6 +224,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateMenuBarTitle()
             }
         }
+        tickerTimer?.tolerance = 1.0
     }
 
     private func stopTickerTimer() {
@@ -246,13 +243,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.isRefreshing = true
                 defer { self.isRefreshing = false }
                 let symbols = Array(StockService.collectSymbols(storageService: self.storageService))
-                await self.stockService.fetchQuotes(symbols: symbols)
+                if !self.webSocketService.isConnected {
+                    await self.stockService.fetchQuotes(symbols: symbols)
+                }
                 await self.stockService.refreshExchangeRates(storageService: self.storageService)
                 self.updateMenuBarTitle()
                 self.alertMonitor.check(quotes: self.stockService.quotes)
                 self.webSocketService.updateSymbols(Array(self.collectSymbols()))
             }
         }
+        timer?.tolerance = 10
     }
 
     // MARK: - Sleep / Wake

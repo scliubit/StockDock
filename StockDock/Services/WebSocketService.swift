@@ -105,14 +105,20 @@ final class WebSocketService: NSObject, ObservableObject {
 
     private func receiveMessage() {
         webSocketTask?.receive { [weak self] result in
-            Task { @MainActor in
-                guard let self else { return }
-                switch result {
-                case .success(let message):
-                    self.handleMessage(message)
+            switch result {
+            case .success(let message):
+                let ticker = Self.decodeTicker(from: message)
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let ticker {
+                        self.lastTickTime = Date()
+                        self.onTick?(ticker)
+                    }
                     self.receiveMessage() // keep listening
-                case .failure:
-                    self.handleDisconnect()
+                }
+            case .failure:
+                Task { @MainActor in
+                    self?.handleDisconnect()
                 }
             }
         }
@@ -123,14 +129,14 @@ final class WebSocketService: NSObject, ObservableObject {
         let message: String? // base64-encoded protobuf
     }
 
-    private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
+    nonisolated private static func decodeTicker(from message: URLSessionWebSocketTask.Message) -> Yaticker? {
         let text: String
         switch message {
         case .string(let t): text = t
         case .data(let d):
-            guard let t = String(data: d, encoding: .utf8) else { return }
+            guard let t = String(data: d, encoding: .utf8) else { return nil }
             text = t
-        @unknown default: return
+        @unknown default: return nil
         }
 
         // Yahoo WSS v2 wraps protobuf in JSON: {"type":"pricing","message":"<base64>"}
@@ -143,17 +149,15 @@ final class WebSocketService: NSObject, ObservableObject {
             if let directData = Data(base64Encoded: text),
                let ticker = try? Yaticker(serializedBytes: directData),
                ticker.quoteType != .heartbeat {
-                lastTickTime = Date()
-                onTick?(ticker)
+                return ticker
             }
-            return
+            return nil
         }
 
-        guard let ticker = try? Yaticker(serializedBytes: protoData) else { return }
-        if ticker.quoteType == .heartbeat { return }
+        guard let ticker = try? Yaticker(serializedBytes: protoData) else { return nil }
+        if ticker.quoteType == .heartbeat { return nil }
 
-        lastTickTime = Date()
-        onTick?(ticker)
+        return ticker
     }
 
 
@@ -167,6 +171,7 @@ final class WebSocketService: NSObject, ObservableObject {
                 self.sendJSON(["subscribe": self.subscribedSymbols])
             }
         }
+        heartbeatTimer?.tolerance = 3
     }
 
     private func startWatchdog() {
@@ -181,6 +186,7 @@ final class WebSocketService: NSObject, ObservableObject {
                 }
             }
         }
+        watchdogTimer?.tolerance = 5
     }
 
     // MARK: - Reconnect
@@ -201,6 +207,7 @@ final class WebSocketService: NSObject, ObservableObject {
                 self?.openConnection()
             }
         }
+        reconnectTimer?.tolerance = min(delay * 0.1, 5)
     }
 }
 

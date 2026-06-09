@@ -51,8 +51,9 @@ final class AlertMonitor {
     }
 
     /// Check all enabled alerts against the given quotes; fire + disable those that match.
-    func check(quotes: [String: StockQuote]) {
+    func check(quotes: [String: StockQuote], limitingTo symbols: Set<String>? = nil) {
         for alert in storage.alerts where alert.isEnabled {
+            if let symbols, !symbols.contains(alert.symbol) { continue }
             guard let quote = quotes[alert.symbol] else { continue }
             guard AlertEvaluator.shouldFire(alert, quote: quote) else { continue }
 
